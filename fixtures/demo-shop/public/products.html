@@ -1,0 +1,16 @@
+<!doctype html><html><head><title>Products</title></head><body>
+<h1>Products</h1>
+<div id="list">loading</div>
+<button id="load" onclick="load()">Load products</button>
+<button id="add-1" onclick="addToCart(1)">Add House Blend to cart</button>
+<button id="add-2" onclick="addToCart(2)">Add Sourdough Loaf to cart</button>
+<a id="back" href="/">Back</a>
+<script>
+function load(){fetch('/api/products').then(r=>r.json()).then(p=>{
+  document.getElementById('list').textContent = p.map(x=>x.name).join(', ');});}
+function addToCart(id){fetch('/api/cart',{method:'POST',headers:{'content-type':'application/json'},
+  body:JSON.stringify({productId:id})}).then(r=>r.json()).then(d=>{
+  document.getElementById('list').textContent = 'in cart: ' + d.count;});}
+load();
+</script>
+</body></html>

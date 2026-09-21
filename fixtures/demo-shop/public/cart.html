@@ -1,0 +1,11 @@
+<!doctype html><html><head><title>Cart</title></head><body>
+<h1>Cart</h1>
+<div id="items">loading</div>
+<button id="refresh" onclick="refresh()">Refresh cart</button>
+<a id="back" href="/">Back</a>
+<script>
+function refresh(){fetch('/api/cart').then(r=>r.json()).then(d=>{
+  document.getElementById('items').textContent = d.items.length + ' item(s)';});}
+refresh();
+</script>
+</body></html>

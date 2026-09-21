@@ -1,0 +1,9 @@
+{
+  "name": "demo-shop",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "description": "A small multi-role shop used as a proving ground for Shepard. Not part of Shepard itself.",
+  "scripts": { "start": "node server.js" },
+  "dependencies": { "express": "^4.21.2" }
+}

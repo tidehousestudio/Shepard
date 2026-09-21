@@ -1,0 +1,28 @@
+{
+  "name": "shepard",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Autonomous reliability system for software repositories",
+  "bin": {
+    "shepard": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && cp src/knowledge/schema.sql dist/knowledge/schema.sql",
+    "dev": "tsc -p tsconfig.json --watch",
+    "shepard": "node --enable-source-maps dist/cli.js",
+    "test": "node --test dist/**/*.test.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.7.0",
+    "playwright": "1.56.1"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2"
+  }
+}
