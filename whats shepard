@@ -1,0 +1,7 @@
+**Shepard** is an autonomous AI maintenance and reliability system for software repositories.
+
+It connects to a repository, learns how the application is supposed to work, establishes a healthy baseline, and continuously audits both the codebase and running product for regressions, failures, and unexpected behavior.
+
+Shepard investigates what it finds, maintains persistent knowledge of the application and its history, tracks overall system health, and alerts you when something actually requires attention.
+
+The philosophy is simple: **don’t watch Shepard. Shepard watches your software.**
