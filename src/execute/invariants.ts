@@ -55,7 +55,14 @@ export function invariantsForVisit(
   const out: Candidate[] = [];
   const at = visit.path;
   const anonymous = (ctx.actor ?? 'anonymous') === 'anonymous';
-  const looksProtected = ctx.protectedRoutes?.has(at) ?? PROTECTED_HINT.test(at);
+  // Any one of the three sources is enough to make an anonymous 200 worth
+  // examining. An earlier version used ?? here, which meant that supplying the
+  // cross-layer set silently switched off the other two — so the one defect that
+  // needs history to be caught, a deleted authorization check, went unnoticed.
+  const looksProtected =
+    (ctx.protectedRoutes?.has(at) ?? false) ||
+    (ctx.previouslyGuarded?.has(at) ?? false) ||
+    PROTECTED_HINT.test(at);
 
   if (visit.status === null) {
     out.push({

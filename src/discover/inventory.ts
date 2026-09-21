@@ -57,7 +57,9 @@ export function takeInventory(root: string): Inventory {
 
   let headCommit: string | null = null;
   try {
-    headCommit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
+    headCommit = execFileSync('git', ['rev-parse', 'HEAD'], {
+      cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
   } catch { /* not a git repository, or git unavailable */ }
 
   const pkg = readJson(join(root, 'package.json'));

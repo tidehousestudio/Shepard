@@ -8,7 +8,7 @@
     "shepard": "./dist/cli.js"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json && cp src/knowledge/schema.sql dist/knowledge/schema.sql",
+    "build": "tsc -p tsconfig.json && cp src/knowledge/schema.sql dist/knowledge/schema.sql && mkdir -p dist/ui/public && cp src/ui/public/* dist/ui/public/",
     "dev": "tsc -p tsconfig.json --watch",
     "shepard": "node --enable-source-maps dist/cli.js",
     "test": "node --test dist/**/*.test.js"

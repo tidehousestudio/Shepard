@@ -2,6 +2,7 @@
 import { resolve } from 'node:path';
 import { runAudit } from './audit.js';
 import { runSelftest } from './harness/selftest.js';
+import { serve } from './ui/server.js';
 import { KnowledgeStore } from './knowledge/store.js';
 import { LEVEL_NAMES, Level } from './knowledge/types.js';
 import { join } from 'node:path';
@@ -16,6 +17,7 @@ SHEPARD
   shepard findings <path>     what is currently wrong, and what is known
   shepard status <path>       health, coverage, last audit
   shepard selftest <path>     plant known defects in a copy and measure what shepard catches
+  shepard watch <path>        serve the screen
 
 options
   --base-url <url>            verify an already-running instance instead of booting one
@@ -159,6 +161,7 @@ const root = resolve(target);
 try {
   if (cmd === 'audit') await cmdAudit(root);
   else if (cmd === 'selftest') await cmdSelftest(root);
+  else if (cmd === 'watch') serve(root, arg('port') ? Number(arg('port')) : 4100);
   else if (cmd === 'findings') cmdFindings(root);
   else if (cmd === 'status') cmdStatus(root);
   else { usage(); process.exit(1); }

@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shepard</title>
+<style>
+  :root {
+    --bg: #0b0b0b;
+    --fg: #d8d4c8;
+    --dim: #6b675e;
+    --alert: #c8552f;
+    --warn: #b08a3c;
+  }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) { --bg: #edeae1; --fg: #1d1b18; --dim: #7d786d; }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font: 14px/1.7 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    display: flex;
+    flex-direction: column;
+    padding: 0 16px;
+  }
+  main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    max-width: 44rem;
+    margin: 0 auto;
+    width: 100%;
+  }
+  h1 { font-size: 14px; font-weight: 400; letter-spacing: 0.35em; margin: 0 0 2.5rem; }
+  dl { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 0 1.5rem; }
+  dt { color: var(--dim); }
+  dd { margin: 0; }
+  .critical { color: var(--alert); }
+  .degraded { color: var(--warn); }
+  .blind { color: var(--dim); }
+  canvas {
+    image-rendering: pixelated;
+    width: 100%;
+    max-width: 44rem;
+    margin: 3rem auto 0;
+    display: block;
+  }
+  #findings { margin-top: 2.5rem; display: none; }
+  #findings.open { display: block; }
+  #findings div { color: var(--dim); }
+  #findings b { font-weight: 400; color: var(--fg); }
+  footer { color: var(--dim); padding: 1.5rem 0; text-align: center; font-size: 12px; }
+  a { color: inherit; }
+</style>
+</head>
+<body>
+<main>
+  <h1>SHEPARD</h1>
+  <dl id="readout"></dl>
+  <div id="findings"></div>
+  <canvas id="scene" width="240" height="72" aria-label="Shepard's state, drawn as a flock"></canvas>
+</main>
+<footer><a href="#" id="toggle">details</a></footer>
+<script src="scene.js"></script>
+<script>
+  const readout = document.getElementById('readout');
+  const findingsEl = document.getElementById('findings');
+
+  const row = (k, v, cls) =>
+    `<dt>${k}</dt><dd${cls ? ` class="${cls}"` : ''}>${v}</dd>`;
+
+  async function tick() {
+    let s;
+    try { s = await (await fetch('/api/state')).json(); }
+    catch { return; }
+
+    if (!s.connected) {
+      readout.innerHTML = row('repository', 'none connected');
+      Scene.set('idle');
+      return;
+    }
+
+    const stateClass = s.health === 'critical' ? 'critical'
+      : s.health === 'degraded' ? 'degraded'
+      : s.health === 'blind' ? 'blind' : '';
+
+    readout.innerHTML = [
+      row('repository', s.repository),
+      row('health', s.health + '.', stateClass),
+      // Coverage sits next to health deliberately. "Healthy at 14%" and
+      // "healthy at 81%" are different claims and must not read the same.
+      row('coverage', Math.round(s.coverage * 100) + '%'),
+      row('last audit', s.lastAudit ? new Date(s.lastAudit).toTimeString().slice(0, 5) + '.' : 'never.'),
+      row('critical', s.critical, s.critical ? 'critical' : ''),
+      row('need attention', s.needAttention),
+    ].join('');
+
+    findingsEl.innerHTML = [
+      ...s.findings.map(f => `<div><b>${f.severity}</b> · ${f.status} · ${f.title}</div>`),
+      ...s.unverified.map(u => `<div>unverified · ${u}</div>`),
+    ].join('') || '<div>nothing outstanding.</div>';
+
+    Scene.set(s.health);
+  }
+
+  document.getElementById('toggle').onclick = e => {
+    e.preventDefault();
+    findingsEl.classList.toggle('open');
+  };
+
+  tick();
+  setInterval(tick, 5000);
+</script>
+</body>
+</html>
