@@ -30,10 +30,11 @@ const Scene = (() => {
 
   function drawTree(x) {
     const fg = css('--fg'), dim = css('--dim');
-    px(x + 4, GROUND - 10, 3, 10, dim);          // trunk
-    px(x, GROUND - 20, 11, 4, fg);
-    px(x + 1, GROUND - 24, 9, 4, fg);
-    px(x + 3, GROUND - 27, 5, 3, fg);
+    px(x + 5, GROUND - 12, 3, 12, dim);          // trunk
+    px(x, GROUND - 17, 13, 5, fg);               // canopy, widest at the base
+    px(x + 1, GROUND - 22, 11, 5, fg);
+    px(x + 3, GROUND - 26, 7, 4, fg);
+    px(x + 5, GROUND - 28, 3, 2, fg);
   }
 
   function drawSheep(s, opts) {
@@ -100,18 +101,20 @@ const Scene = (() => {
     const threatened = state === 'critical';
     const blind = state === 'blind';
 
-    for (const s of sheep) {
+    sheep.forEach((s, i) => {
       if (gathering) {
         // Drawn towards the shepherd: Shepard is taking inventory of the flock.
-        s.x += (70 - s.x) * 0.004;
+        s.x += (60 + i * 10 - s.x) * 0.004;
       } else if (threatened) {
-        s.x += (45 - s.x) * 0.012;           // huddle away from the wolf
+        // Huddled, but still countable. A flock that merges into one blob stops
+        // telling the user how much is at stake.
+        s.x += (40 + i * 11 - s.x) * 0.012;
       } else {
         s.x += s.drift * (state === 'healthy' ? 0.35 : 1);
         if (s.x < 34 || s.x > W - 30) s.drift *= -1;
       }
       drawSheep(s, { faint: blind });
-    }
+    });
 
     if (state !== 'idle') {
       const resting = state === 'healthy';
