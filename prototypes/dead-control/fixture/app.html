@@ -1,0 +1,21 @@
+<!doctype html><html><body>
+<h1>Widget Shop</h1>
+<div id="cart">cart: 0</div>
+<button id="add">Add to cart</button>
+<button id="save">Save draft</button>
+<button id="refresh">Refresh prices</button>
+<button id="subscribe">Subscribe</button>
+<a id="home" href="/app.html">Home</a>
+<a id="docs" href="/docs.html">Docs</a>
+<a id="terms" href="/terms.html">Terms</a>
+<script>
+let n=0;
+// WORKING: mutates DOM
+document.getElementById('add').onclick=()=>{n++;document.getElementById('cart').textContent='cart: '+n;};
+// WORKING: writes storage
+document.getElementById('save').onclick=()=>{localStorage.setItem('draft','x'+Date.now());};
+// WORKING: issues network
+document.getElementById('refresh').onclick=()=>{fetch('/prices.json');};
+// PLANTED DEFECT: handler removed, button is inert
+</script>
+</body></html>
