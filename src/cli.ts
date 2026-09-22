@@ -152,14 +152,25 @@ async function cmdSelftest(root: string): Promise<void> {
     only: arg('only')?.split(','),
   });
   for (const r of results) {
-    out.write(`${r.caught ? 'caught ' : 'MISSED '} ${pad(r.mutation, 22)} ${r.describe}\n`);
+    const mark = r.blocked ? 'BLOCKED' : r.caught ? 'caught ' : 'MISSED ';
+    out.write(`${mark} ${pad(r.mutation, 22)} ${r.describe}\n`);
     if (r.matchedTitle) out.write(`         ${r.matchedTitle}\n`);
-    if (!r.caught) out.write(`         expected a ${r.expected} finding; got: ${r.alsoFound.join(' | ') || 'nothing'}\n`);
+    if (r.blocked) out.write(`         not measured: ${r.blocked}\n`);
+    else if (!r.caught) out.write(`         expected a ${r.expected} finding; got: ${r.alsoFound.join(' | ') || 'nothing'}\n`);
     out.write('\n');
   }
   const caught = results.filter(r => r.caught).length;
-  out.write(`${caught} of ${results.length} planted defects found.\n\n`);
-  if (caught < results.length) process.exitCode = 1;
+  const blocked = results.filter(r => r.blocked).length;
+  const measured = results.length - blocked;
+
+  // A blocked test is not a miss and it is certainly not a pass, so the score
+  // is stated over what was actually measured and the gap is stated separately.
+  out.write(`${caught} of ${measured} measured planted defects found.\n`);
+  if (blocked) {
+    out.write(`${blocked} of ${results.length} could not be measured at all — this run does not show whether shepard can see.\n`);
+  }
+  out.write('\n');
+  if (caught < measured || blocked) process.exitCode = 1;
 }
 
 const [, , cmd, target] = process.argv;

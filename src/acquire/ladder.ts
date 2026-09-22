@@ -62,16 +62,33 @@ export function deriveRecipe(inv: Inventory): Recipe {
   };
 }
 
-async function waitForHttp(url: string, timeoutMs: number): Promise<boolean> {
+async function waitForHttp(
+  url: string,
+  timeoutMs: number,
+  stillStarting: () => boolean = () => true,
+): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {
       const res = await fetch(url, { signal: AbortSignal.timeout(2000) });
       if (res.status < 500) return true;
     } catch { /* not up yet */ }
+    // If the process we are waiting for has already exited, waiting out the
+    // full timeout only delays the truth.
+    if (!stillStarting()) return false;
     await sleep(400);
   }
   return false;
+}
+
+/** Is anything at all answering on this URL right now? */
+async function portAnswers(url: string): Promise<boolean> {
+  try {
+    await fetch(url, { signal: AbortSignal.timeout(1500) });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -90,12 +107,29 @@ export async function acquire(
   const unmet: Unmet[] = [];
   let level = Level.Static;
   let child: ChildProcess | null = null;
+  let exited = false;
+  /**
+   * Stop the application, and mean it.
+   *
+   * The start command is almost always a package-manager script, so the process
+   * Shepard spawns is `npm`, and the server is its child. Signalling `npm` alone
+   * leaves the server alive and still holding the port, which is worse than not
+   * stopping at all: the next audit finds something answering on that port and
+   * verifies a stranger. The child is therefore its own process group leader and
+   * the whole group is signalled.
+   */
   const stop = async () => {
-    if (child && !child.killed) {
-      child.kill('SIGTERM');
-      await sleep(300);
-      if (!child.killed) child.kill('SIGKILL');
-    }
+    const pid = child?.pid;
+    if (!child || pid === undefined) return;
+
+    const signalGroup = (sig: NodeJS.Signals) => {
+      try { process.kill(-pid, sig); }
+      catch { try { child!.kill(sig); } catch { /* already gone */ } }
+    };
+
+    signalGroup('SIGTERM');
+    await sleep(500);
+    if (!exited) signalGroup('SIGKILL');
   };
 
   // An already-running instance the caller supplied. Trusting it is fine: the
@@ -147,21 +181,42 @@ export async function acquire(
 
   const port = opts.port ?? 3000;
   const baseUrl = `http://127.0.0.1:${port}`;
+
+  // Whatever answers on the port is not necessarily the application under
+  // audit. If something is already listening before Shepard starts anything,
+  // then a successful probe proves nothing about this repository, and every
+  // finding that followed would be about a stranger — stated with the same
+  // confidence as a real one. Refuse instead: an audit Shepard could not
+  // perform is a gap in coverage, never a verdict.
+  if (await portAnswers(baseUrl)) {
+    unmet.push({
+      level: Level.Boots,
+      need: `port ${port} to be free before the application is started`,
+      detail: `something was already answering on ${baseUrl}, so shepard cannot tell its own instance apart from it`,
+    });
+    return { level: Level.Builds, baseUrl: null, recipe, unmet, stop };
+  }
+
   child = spawn(recipe.start[0]!, recipe.start.slice(1), {
     cwd: inv.root,
     stdio: 'ignore',
+    // Its own process group, so `stop` can take the server down with it.
+    detached: true,
     env: { ...process.env, PORT: String(port), NODE_ENV: 'development' },
   });
+  child.on('exit', () => { exited = true; });
 
-  if (await waitForHttp(baseUrl, opts.timeoutMs ?? 60_000)) {
+  if (await waitForHttp(baseUrl, opts.timeoutMs ?? 60_000, () => !exited)) {
     level = Level.Boots;
   } else {
     unmet.push({
       level: Level.Boots,
       need: 'the application to answer on its port',
-      detail: recipe.env?.length
-        ? `it may need configuration: ${recipe.env.slice(0, 8).join(', ')}`
-        : undefined,
+      detail: exited
+        ? `\`${recipe.start.join(' ')}\` exited before the port answered`
+        : recipe.env?.length
+          ? `it may need configuration: ${recipe.env.slice(0, 8).join(', ')}`
+          : undefined,
     });
     await stop();
     return { level: Level.Builds, baseUrl: null, recipe, unmet, stop };

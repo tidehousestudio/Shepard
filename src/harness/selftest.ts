@@ -1,7 +1,12 @@
-import { cpSync, readFileSync, writeFileSync, rmSync, mkdtempSync } from 'node:fs';
+import { cpSync, readFileSync, writeFileSync, rmSync, mkdtempSync, existsSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { runAudit } from '../audit.js';
+import { takeInventory } from '../discover/inventory.js';
+import { deriveRecipe } from '../acquire/ladder.js';
+import { Level } from '../knowledge/types.js';
 import { KnowledgeStore } from '../knowledge/store.js';
 
 export interface Mutation {
@@ -73,6 +78,27 @@ export const MUTATIONS: Mutation[] = [
   },
 ];
 
+/**
+ * The next port nothing is listening on.
+ *
+ * Shepard now refuses to audit a port that was already answering, which is the
+ * right behaviour and makes a collision surface as a blocked test rather than a
+ * false verdict. The harness should not spend its runs on that, so it picks
+ * ports that are actually free instead of assuming a fixed range is.
+ */
+async function freePortFrom(start: number): Promise<number> {
+  for (let port = start; port < start + 200; port++) {
+    const free = await new Promise<boolean>(resolve => {
+      const probe = createServer();
+      probe.once('error', () => resolve(false));
+      probe.once('listening', () => probe.close(() => resolve(true)));
+      probe.listen(port, '127.0.0.1');
+    });
+    if (free) return port;
+  }
+  throw new Error(`no free port found from ${start}`);
+}
+
 export interface SelftestResult {
   mutation: string;
   describe: string;
@@ -80,6 +106,41 @@ export interface SelftestResult {
   caught: boolean;
   matchedTitle?: string;
   alsoFound: string[];
+  /**
+   * Set when Shepard never got far enough to have an opinion. A blocked test is
+   * not a passed test and it is not a failed one either; it is the harness
+   * admitting it measured nothing, which is the same distinction Shepard draws
+   * between verified healthy and unverified.
+   */
+  blocked?: string;
+}
+
+/**
+ * The harness is worthless if it cannot tell "Shepard looked and saw nothing"
+ * from "Shepard never got to look".
+ *
+ * Every copy is audited with installation skipped, because installing five
+ * times over is waste. That only holds if the fixture's dependencies are
+ * already present, and when they are not every copy silently fails to boot and
+ * every mutation reads as MISSED — a total detection failure reported in the
+ * same words as a real one. So the precondition is established once, out loud,
+ * before any defect is planted.
+ */
+function ensureFixtureRunnable(fixtureRoot: string): string | null {
+  const inv = takeInventory(fixtureRoot);
+  const recipe = deriveRecipe(inv);
+  if (!recipe.install) return 'no recognised package manifest, so the fixture cannot be booted';
+  if (existsSync(join(fixtureRoot, 'node_modules'))) return null;
+
+  try {
+    execFileSync(recipe.install[0]!, recipe.install.slice(1),
+      { cwd: fixtureRoot, stdio: 'ignore', timeout: 300_000 });
+  } catch {
+    return `\`${recipe.install.join(' ')}\` failed in the fixture, so no copy of it can boot`;
+  }
+  return existsSync(join(fixtureRoot, 'node_modules'))
+    ? null
+    : 'dependency installation left no node_modules, so no copy of the fixture can boot';
 }
 
 /**
@@ -94,12 +155,18 @@ export async function runSelftest(
   fixtureRoot: string,
   opts: { port?: number; only?: string[] } = {},
 ): Promise<SelftestResult[]> {
+  const blocker = ensureFixtureRunnable(fixtureRoot);
+  if (blocker) {
+    throw new Error(
+      `the selftest fixture cannot run, so nothing would be measured: ${blocker}`);
+  }
+
   const results: SelftestResult[] = [];
   const chosen = opts.only?.length
     ? MUTATIONS.filter(m => opts.only!.includes(m.name))
     : MUTATIONS;
 
-  let port = opts.port ?? 3200;
+  const port = opts.port ?? 3200;
 
   for (const mutation of chosen) {
     const work = mkdtempSync(join(tmpdir(), 'shepard-selftest-'));
@@ -109,11 +176,46 @@ export async function runSelftest(
     try {
       // Healthy baseline first. Shepard has to know what right looks like
       // before it can be asked whether something is wrong.
-      await runAudit({ root, port: port++, skipInstall: true, confirmations: 1, kind: 'onboarding' });
+      const baseline = await runAudit({
+        root, port: await freePortFrom(port), skipInstall: true, confirmations: 1, kind: 'onboarding',
+      });
+
+      // Below Boots there is no running application, so no control was pressed
+      // and no request was made. Reporting that as a miss would blame detection
+      // for a hole in the setup.
+      if (baseline.level < Level.Boots) {
+        results.push({
+          mutation: mutation.name,
+          describe: mutation.describe,
+          expected: mutation.expect,
+          caught: false,
+          alsoFound: [],
+          blocked: baseline.unmet.find(u => u.level === Level.Boots)?.need
+            ?? `the healthy copy only reached level ${baseline.level}`,
+        });
+        continue;
+      }
 
       mutation.apply(root);
 
-      const after = await runAudit({ root, port: port++, skipInstall: true, confirmations: 2, kind: 'scheduled' });
+      const after = await runAudit({
+        root, port: await freePortFrom(port), skipInstall: true, confirmations: 2, kind: 'scheduled',
+      });
+
+      // The healthy copy booted and the mutated one did not. That is a real
+      // regression, but it is not the one this mutation is measuring, so it
+      // must not be counted as catching the planted defect.
+      if (after.level < Level.Boots) {
+        results.push({
+          mutation: mutation.name,
+          describe: mutation.describe,
+          expected: mutation.expect,
+          caught: false,
+          alsoFound: [],
+          blocked: 'the mutated copy stopped booting, so the planted defect was never exercised',
+        });
+        continue;
+      }
 
       const store = new KnowledgeStore(join(root, '.shepard', 'knowledge.db'));
       const open = store.findings(after.appId, { open: true });
