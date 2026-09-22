@@ -45,7 +45,7 @@ export async function runAudit(opts: AuditOptions): Promise<AuditResult> {
   const shepardDir = join(opts.root, '.shepard');
   const store = new KnowledgeStore(join(shepardDir, 'knowledge.db'));
   const evidence = new EvidenceStore(join(shepardDir, 'evidence'), store);
-  const provider = selectProvider();
+  const provider = await selectProvider();
 
   // ---- inventory and enumeration -----------------------------------------
   const inv = takeInventory(opts.root);
@@ -80,7 +80,36 @@ export async function runAudit(opts: AuditOptions): Promise<AuditResult> {
     });
   }
 
-  const comprehension = await provider.comprehend(inv, discovered);
+  // Comprehension is the one part of the cycle that leaves the machine, so it is
+  // the one part allowed to fail without taking detection down with it. If the
+  // model call errors, Shepard falls back to structure-only and says so, rather
+  // than aborting an audit that could still find every mechanical defect.
+  let comprehension: Comprehension;
+  try {
+    comprehension = await provider.comprehend(inv, discovered);
+  } catch (err) {
+    const { HeuristicProvider } = await import('./model/provider.js');
+    comprehension = await new HeuristicProvider().comprehend(inv, discovered);
+    comprehension = {
+      ...comprehension,
+      summary: `${comprehension.summary} (the model call failed: ${(err as Error).message})`,
+    };
+  }
+
+  // Persist understanding so it outlives this session. Only a model-produced
+  // comprehension earns rows: structure-only output is not understanding, and
+  // storing it as if it were would be a claim with nothing behind it.
+  if (comprehension.available) {
+    const provId = store.recordProvenance(appId, {
+      kind: 'model', tool: comprehension.producedBy, atCommit: inv.headCommit ?? undefined,
+    });
+    store.replaceComprehension(appId, {
+      systems: comprehension.systems.map(s => ({ name: s.name, importance: s.importance, summary: s.evidence })),
+      actors: comprehension.actors.map(a => ({ name: a.name, credentials: a.evidence })),
+      provenanceId: provId,
+      atCommit: inv.headCommit ?? undefined,
+    });
+  }
 
   // ---- acquisition --------------------------------------------------------
   const acquisition = await acquire(inv, {

@@ -171,6 +171,56 @@ export class KnowledgeStore {
     return total;
   }
 
+  // ---- comprehension (systems and actors) --------------------------------
+
+  /**
+   * Persist what the model understood about the application.
+   *
+   * Understanding is only worth anything if it survives the conversation that
+   * produced it, so systems and actors are rows with provenance like everything
+   * else — a later session, or the chat, reads them from here rather than
+   * re-deriving them. Replaced wholesale each comprehension, because a changed
+   * application can retire a system, and a stale system left behind would be a
+   * claim with nothing behind it.
+   */
+  replaceComprehension(appId: string, c: {
+    systems: { name: string; importance: Importance; summary?: string }[];
+    actors: { name: string; credentials?: string }[];
+    provenanceId: string;
+    atCommit?: string;
+  }): void {
+    const tx = this.db.transaction(() => {
+      this.db.prepare(`DELETE FROM system WHERE app_id = ?`).run(appId);
+      this.db.prepare(`DELETE FROM actor WHERE app_id = ?`).run(appId);
+      const insSystem = this.db.prepare(
+        `INSERT INTO system (id, app_id, name, summary, importance, provenance_id, at_commit)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      );
+      for (const s of c.systems) {
+        insSystem.run(id(), appId, s.name, s.summary ?? null, s.importance, c.provenanceId, c.atCommit ?? null);
+      }
+      const insActor = this.db.prepare(
+        `INSERT INTO actor (id, app_id, name, credentials, provenance_id, at_commit)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      );
+      for (const a of c.actors) {
+        insActor.run(id(), appId, a.name, a.credentials ?? null, c.provenanceId, c.atCommit ?? null);
+      }
+    });
+    tx();
+  }
+
+  systems(appId: string): { name: string; summary: string | null; importance: string }[] {
+    return this.db.prepare(
+      `SELECT name, summary, importance FROM system WHERE app_id = ? ORDER BY
+         CASE importance WHEN 'core' THEN 0 WHEN 'supporting' THEN 1 ELSE 2 END, name`,
+    ).all(appId) as any;
+  }
+
+  actors(appId: string): { name: string }[] {
+    return this.db.prepare(`SELECT name FROM actor WHERE app_id = ? ORDER BY name`).all(appId) as any;
+  }
+
   // ---- expectations -------------------------------------------------------
 
   addExpectation(appId: string, e: {

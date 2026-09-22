@@ -54,6 +54,14 @@ async function cmdAudit(root: string): Promise<void> {
   if (!c.available) {
     out.write(`  no model available, so this is structure without understanding.\n`);
   }
+  if (c.available && c.actors.length) {
+    out.write(`\n  who uses it\n`);
+    for (const a of c.actors) out.write(`    ${pad(a.name, 20)} ${a.evidence}\n`);
+  }
+  if (c.available && c.systems.length) {
+    out.write(`\n  its systems\n`);
+    for (const s of c.systems) out.write(`    [${pad(s.importance, 10)}] ${pad(s.name, 22)} ${s.evidence}\n`);
+  }
   out.write(`\n`);
 
   out.write(`what was found\n`);

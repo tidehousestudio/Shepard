@@ -73,12 +73,20 @@ export class HeuristicProvider implements ModelProvider {
 }
 
 /**
- * The real provider. Deliberately explicit about being unavailable rather than
- * degrading silently: behaviour Shepard could not reason about must never read
- * as behaviour it understood.
+ * Choose a provider from what the environment actually offers.
+ *
+ * With a key, Shepard understands; without one, it reports structure and says
+ * plainly that it formed no understanding. The choice is made from the presence
+ * of the key alone, and never degrades silently: behaviour Shepard could not
+ * reason about must never read as behaviour it understood.
+ *
+ * The import is dynamic so that the mechanical half of Shepard — every phase that
+ * needs no key — carries no dependency on the model SDK. This is loaded through
+ * `selectProvider` (async) only when a key is present.
  */
-export function selectProvider(): ModelProvider {
+export async function selectProvider(): Promise<ModelProvider> {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) return new HeuristicProvider();
-  return new HeuristicProvider();   // ClaudeProvider lands with the key; see docs/design/approach.md §3
+  const { ClaudeProvider } = await import('./claude.js');
+  return new ClaudeProvider(key);
 }
