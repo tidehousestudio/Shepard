@@ -36,6 +36,15 @@ export class ClaudeProvider implements ModelProvider {
     this.client = new Anthropic({ apiKey });
   }
 
+  /** One minimal request, to establish that the key is accepted. */
+  async verify(): Promise<void> {
+    await this.client.messages.create({
+      model: MODEL,
+      max_tokens: 1,
+      messages: [{ role: 'user', content: 'ok' }],
+    });
+  }
+
   async comprehend(inv: Inventory, surfaces: DiscoveredSurface[]): Promise<Comprehension> {
     const evidence = this.buildEvidence(inv, surfaces);
 

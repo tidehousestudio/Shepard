@@ -23,6 +23,14 @@ export interface ModelProvider {
   readonly name: string;
   readonly available: boolean;
   comprehend(inv: Inventory, surfaces: DiscoveredSurface[]): Promise<Comprehension>;
+  /**
+   * Prove model access, cheaply, without auditing anything.
+   *
+   * A key that is present is not a key that works, and the difference has cost
+   * this project two audit attempts. So this spends one minimal request and
+   * reports what the API said, rather than inferring from the key's presence.
+   */
+  verify(): Promise<void>;
 }
 
 /**
@@ -36,6 +44,10 @@ export interface ModelProvider {
 export class HeuristicProvider implements ModelProvider {
   readonly name = 'heuristic (no model)';
   readonly available = false;
+
+  async verify(): Promise<void> {
+    throw new Error('no model provider is configured');
+  }
 
   async comprehend(inv: Inventory, surfaces: DiscoveredSurface[]): Promise<Comprehension> {
     const byKind = (k: string) => surfaces.filter(s => s.kind === k);
@@ -73,6 +85,23 @@ export class HeuristicProvider implements ModelProvider {
 }
 
 /**
+ * The variables Shepard will take a key from, in order of preference.
+ *
+ * `SHEPARD_ANTHROPIC_API_KEY` is first and is the name to prefer. `ANTHROPIC_API_KEY`
+ * is not Shepard's to claim: the Claude Code CLI reads that same name for its own
+ * inference and, when it is set, uses it instead of the signed-in subscription. So a
+ * key parked under that name to feed Shepard silently changes who pays for every
+ * other agent running in the same container. A private name takes the key to Shepard
+ * and to nothing else. The generic name stays supported for a plain local shell.
+ */
+const KEY_VARS = ['SHEPARD_ANTHROPIC_API_KEY', 'ANTHROPIC_API_KEY'] as const;
+
+/** Which of `KEY_VARS` is set, if any. The name only — never the value. */
+export function keySource(): string | undefined {
+  return KEY_VARS.find(name => (process.env[name] ?? '').trim().length > 0);
+}
+
+/**
  * Choose a provider from what the environment actually offers.
  *
  * With a key, Shepard understands; without one, it reports structure and says
@@ -85,8 +114,8 @@ export class HeuristicProvider implements ModelProvider {
  * `selectProvider` (async) only when a key is present.
  */
 export async function selectProvider(): Promise<ModelProvider> {
-  const key = process.env.ANTHROPIC_API_KEY;
-  if (!key) return new HeuristicProvider();
+  const source = keySource();
+  if (!source) return new HeuristicProvider();
   const { ClaudeProvider } = await import('./claude.js');
-  return new ClaudeProvider(key);
+  return new ClaudeProvider((process.env[source] as string).trim());
 }

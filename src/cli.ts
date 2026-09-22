@@ -4,6 +4,7 @@ import { runAudit } from './audit.js';
 import { runSelftest } from './harness/selftest.js';
 import { serve } from './ui/server.js';
 import { KnowledgeStore } from './knowledge/store.js';
+import { keySource, selectProvider } from './model/provider.js';
 import { LEVEL_NAMES, Level } from './knowledge/types.js';
 import { join } from 'node:path';
 
@@ -18,6 +19,7 @@ SHEPARD
   shepard status <path>       health, coverage, last audit
   shepard selftest <path>     plant known defects in a copy and measure what shepard catches
   shepard watch <path>        serve the screen
+  shepard model               report whether model access is configured, and prove it
 
 options
   --base-url <url>            verify an already-running instance instead of booting one
@@ -173,7 +175,47 @@ async function cmdSelftest(root: string): Promise<void> {
   if (caught < measured || blocked) process.exitCode = 1;
 }
 
+/**
+ * Answer the one question a container cannot be interrogated about: does this
+ * process have model access, and did the key actually work?
+ *
+ * It reports the *name* of the variable a key was found under and never any part
+ * of the value, so it stays safe to run and to paste. Presence is not the claim
+ * that matters, though: a key can be present and rejected. So it also spends one
+ * minimal request, and reports what the API said, because "configured" and
+ * "working" are different states and only the second one is worth having.
+ */
+async function cmdModel(): Promise<void> {
+  const out = process.stdout;
+  const source = keySource();
+  out.write('\n');
+  if (!source) {
+    out.write('No API key reached this process.\n');
+    out.write('Looked for SHEPARD_ANTHROPIC_API_KEY, then ANTHROPIC_API_KEY. Neither is set.\n');
+    out.write('Shepard will audit structure and will not claim an understanding.\n\n');
+    process.exitCode = 1;
+    return;
+  }
+  out.write(`A key is present, from ${source}.\n`);
+  const provider = await selectProvider();
+  out.write(`Provider: ${provider.name}\n`);
+  try {
+    await provider.verify();
+    out.write('The API accepted the key. Model access is working.\n\n');
+  } catch (err) {
+    const msg = (err as Error).message;
+    // A 401 means the key arrived and was refused, which is a different problem
+    // from a key that never arrived, and the difference is the whole diagnosis.
+    out.write(`The API rejected the request: ${msg}\n`);
+    out.write(/401|authentication|invalid x-api-key/i.test(msg)
+      ? 'That is an authentication failure, so the variable is reaching Shepard but the key itself is wrong, revoked, or from another account.\n\n'
+      : 'That is not an authentication failure, so the key is reaching Shepard and the fault is elsewhere.\n\n');
+    process.exitCode = 1;
+  }
+}
+
 const [, , cmd, target] = process.argv;
+if (cmd === 'model') { await cmdModel(); process.exit(process.exitCode ?? 0); }
 if (!cmd || !target) { usage(); process.exit(1); }
 const root = resolve(target);
 
